@@ -149,6 +149,8 @@ npm run test:live   # opt-in smoke test against the real APIs (LIVE=1)
 npm run build       # compile to dist/
 ```
 
+`.github/workflows/ci.yml` runs lint, typecheck, tests and build on Node 20 and 22.
+
 ## License
 
 [MIT](LICENSE) © 2026 Maël Guimet. Data comes from French public services under their open licences: Licence Ouverte / Etalab 2.0 for BAN, SIRENE and geo.api.gouv.fr.
