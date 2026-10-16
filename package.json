@@ -1,0 +1,55 @@
+{
+  "name": "mcp-french-open-data",
+  "version": "0.1.0",
+  "description": "MCP server for French open-data APIs: addresses (BAN/G\u00e9oplateforme), companies (SIRENE) and communes.",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "start:http": "node dist/index.js --http",
+    "lint": "eslint .",
+    "typecheck": "tsc -p tsconfig.test.json",
+    "test": "vitest run",
+    "test:live": "LIVE=1 vitest run test/live.test.ts",
+    "demo": "node --import tsx scripts/demo.ts"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "open-data",
+    "france",
+    "sirene",
+    "ban"
+  ],
+  "author": "Ma\u00ebl Guimet",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "express": "^5.3.0",
+    "zod": "^4.6.7"
+  },
+  "type": "module",
+  "bin": {
+    "mcp-french-open-data": "dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/maelguimet/mcp-french-open-data.git"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.0",
+    "@types/express": "^5.0.0",
+    "@types/node": "^20.19.0",
+    "eslint": "^9.39.0",
+    "tsx": "^4.20.0",
+    "typescript": "~5.9.3",
+    "typescript-eslint": "^8.71.0",
+    "vitest": "^4.0.0"
+  }
+}
