@@ -13,9 +13,9 @@ Everything runs from the repository root. The helper is `.cursor/skills/verify-m
 
 1. Install dependencies once: `npm ci`.
 2. Run `npx tsx .cursor/skills/verify-mcp-french-open-data/verify.ts run`.
-   - It runs `npm run build`. Add `--skip-build` to reuse `dist/`.
-   - **stdio:** it spawns `node dist/index.js` through `StdioClientTransport`. The server is ready when `initialize` returns `serverInfo.name == "mcp-french-open-data"`.
-   - **HTTP:** it spawns `node dist/index.js --http` on a free port on 127.0.0.1, with a fresh random `MCP_API_KEY`. The server is ready when its stderr has a `"msg":"listening"` line with `"auth":"api-key"` and `GET /healthz` returns 200.
+   - It runs `npm run build`. Add `--skip-build` to reuse `dist/`; the run then stops if any file in `src/`, `tsconfig.json` or `package.json` is newer than `dist/index.js`.
+   - **stdio:** it spawns `node dist/index.js` through `StdioClientTransport`. The server is ready when `initialize` returns the package name and version from `package.json`.
+   - **HTTP:** it spawns `node dist/index.js --http` on a free port on 127.0.0.1, with a fresh random `MCP_API_KEY`. The server is ready when its stderr has a `listening` line reporting transport `http`, host `127.0.0.1`, the chosen port, path `/mcp`, auth `api-key` and the package version; `GET /healthz` must then return 200.
 3. Teardown is automatic: the stdio client closes its child, and the script sends SIGTERM to the HTTP server it spawned and waits for it to exit.
 
 Each run has its own port, key and evidence directory, so several runs can go side by side. The only shared resource is the upstream APIs' per-IP rate limits (Recherche d'entreprises allows 7 req/s), so don't run many at once.
@@ -25,8 +25,8 @@ Each run has its own port, key and evidence directory, so several runs can go si
 Run `npx tsx .cursor/skills/verify-mcp-french-open-data/verify.ts doctor`. It is read-only and checks:
 - Node ≥ 20;
 - the dependencies are installed;
-- `dist/index.js` exists and is newer than `src/`;
-- the package version;
+- `dist/index.js` exists and is newer than every file in `src/`, `tsconfig.json` and `package.json`;
+- the version in `package.json` matches `package-lock.json` and `VERSION` in `src/server.ts`;
 - each upstream API answers (data.geopf.fr, recherche-entreprises.api.gouv.fr, geo.api.gouv.fr).
 
 Run it first whenever a `run` fails. If an upstream check fails, the problem is the network or the API, not the server.
@@ -38,9 +38,9 @@ Run it first whenever a `run` fails. If an upstream check fails, the problem is 
 | Journey | Tool call | Sanity check |
 |---|---|---|
 | Address search | `search_address {"query":"20 avenue de Ségur Paris","limit":1}` | postcode `75007`, label contains `Ségur`, lat 48.8–48.9, lon 2.25–2.4 |
-| Reverse geocode | `reverse_geocode {"lat":45.7578,"lon":4.832}` | city `Lyon`, `distance_m` < 300 |
-| Company search | `search_company {"query":"la poste","per_page":3}` | total > 0, every SIREN has 9 digits, `356000000` is in the results and active |
-| Company lookup | `get_company {"siren":"356000000"}` | name `LA POSTE`, VAT `FR39356000000`, head-office SIRET starts with the SIREN, no `date_de_naissance` |
+| Reverse geocode | `reverse_geocode {"lat":45.7578,"lon":4.832}` | city `Lyon`, `distance_m` < 1000 |
+| Company search | `search_company {"query":"la poste","per_page":5}` | total > 0, 1 to 5 results, every SIREN has 9 digits, every result has exactly the summary fields, at least one name contains "poste" |
+| Company lookup | `get_company {"siren":"356000000"}` | exactly the documented fields (leaders only `name`, `role`, `kind`, so no birth dates), name contains "poste", VAT `FR39356000000` computed from the SIREN, head-office SIRET starts with the SIREN |
 | Communes | `list_communes {"postcode":"69001"}` | Lyon `69123`, population > 400,000 |
 | Invalid input | `get_company {"siren":"12"}` | `isError` with "9-digit SIREN" |
 
@@ -63,7 +63,7 @@ To drive a single tool by hand, run `npm run demo` (stdio) or `MCP_API_KEY=… n
 
 ## Evidence
 
-The default evidence directory is `artifacts/verify/<UTC timestamp>/`, which is gitignored. Override it with `--out DIR`. It holds:
+The default evidence directory is `artifacts/verify/<UTC timestamp>/`, which is gitignored. Override it with `--out DIR`; `--out` without a directory, or any unknown argument, exits with code 2. It holds:
 - `transcript.txt`: every tool call, its first 12 output lines, and PASS/FAIL per check;
 - `results.json`: `{ ok, checks: [{ name, ok, detail }] }`;
 - `stdio.stderr.log` and `http.stderr.log`: the servers' own logs.

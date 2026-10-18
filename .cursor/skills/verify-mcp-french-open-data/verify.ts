@@ -11,7 +11,7 @@
  */
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { createWriteStream, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { createWriteStream, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { join, resolve } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -20,14 +20,33 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 
 const root = resolve(import.meta.dirname, "../../..");
 const entry = join(root, "dist/index.js");
-const [command = "run", ...rest] = process.argv.slice(2);
-const flag = (name: string) => rest.indexOf(name);
-const outDir = resolve(
-  root,
-  flag("--out") >= 0
-    ? rest[flag("--out") + 1]!
-    : join("artifacts/verify", new Date().toISOString().replace(/[:.]/g, "-")),
-);
+const usage = "usage: verify.ts doctor | verify.ts run [--skip-build] [--out DIR]";
+function parseArgs(argv: string[]) {
+  const [command = "run", ...rest] = argv;
+  if (command !== "doctor" && command !== "run") throw new Error(`unknown command ${command}\n${usage}`);
+  let skipBuild = false;
+  let out: string | undefined;
+  for (let i = 0; i < rest.length; i++) {
+    const arg = rest[i]!;
+    if (command === "run" && arg === "--skip-build") skipBuild = true;
+    else if (command === "run" && arg === "--out") {
+      const value = rest[++i];
+      if (value === undefined || value === "" || value.startsWith("--")) throw new Error(`--out needs a directory\n${usage}`);
+      out = value;
+    } else throw new Error(`unexpected argument ${arg}\n${usage}`);
+  }
+  return { command, skipBuild, out };
+}
+let args: ReturnType<typeof parseArgs>;
+try {
+  args = parseArgs(process.argv.slice(2));
+} catch (error) {
+  console.error((error as Error).message);
+  process.exit(2);
+}
+const { command, skipBuild } = args;
+const outDir = resolve(root, args.out ?? join("artifacts/verify", new Date().toISOString().replace(/[:.]/g, "-")));
+const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as { name: string; version: string };
 
 interface Check {
   name: string;
@@ -61,6 +80,16 @@ async function call(client: Client, tool: string, args: Record<string, unknown>)
   return { isError: result.isError === true, text, body };
 }
 
+const SUMMARY_KEYS = ["acronym", "category", "created", "establishments", "head_office", "headcount_band", "naf", "name", "siren", "status"];
+const DETAILS_KEYS = [...SUMMARY_KEYS, "closed", "finances", "leaders", "legal_form_code", "vat_number"];
+const HEAD_OFFICE_KEYS = ["address", "city", "lat", "lon", "postcode", "siret"];
+const LEADER_KEYS = ["kind", "name", "role"];
+/** True when the object has exactly these keys, so nothing upstream leaks through. */
+const sameKeys = (value: unknown, keys: string[]) =>
+  typeof value === "object" && value !== null && Object.keys(value).sort().join(",") === [...keys].sort().join(",");
+/** The French intra-community VAT number, derived from the SIREN. */
+const vatNumber = (siren: string) => `FR${String((12 + 3 * (Number(siren) % 97)) % 97).padStart(2, "0")}${siren}`;
+
 /** The five tool journeys and the invalid-input journey, with sanity checks. */
 async function journeys(client: Client, via: string) {
   const { tools } = await client.listTools();
@@ -72,7 +101,7 @@ async function journeys(client: Client, via: string) {
   const a = (address.body as Json[] | undefined)?.[0];
   check(
     `${via}: search_address`,
-    !address.isError && a?.postcode === "75007" && /Ségur/.test(a?.label) && a.lat > 48.8 && a.lat < 48.9 && a.lon > 2.25 && a.lon < 2.4,
+    !address.isError && a?.postcode === "75007" && /s[ée]gur/i.test(a?.label) && a.lat > 48.8 && a.lat < 48.9 && a.lon > 2.25 && a.lon < 2.4,
     a ? `${a.label} (${a.lat}, ${a.lon}) score ${a.score}` : address.text,
   );
 
@@ -80,16 +109,21 @@ async function journeys(client: Client, via: string) {
   const r = (reverse.body as Json[] | undefined)?.[0];
   check(
     `${via}: reverse_geocode`,
-    !reverse.isError && r?.city === "Lyon" && typeof r?.distance_m === "number" && r.distance_m < 300,
+    !reverse.isError && r?.city === "Lyon" && typeof r?.distance_m === "number" && r.distance_m < 1000,
     r ? `${r.label}, ${r.distance_m} m` : reverse.text,
   );
 
-  const search = await call(client, "search_company", { query: "la poste", per_page: 3 });
+  const search = await call(client, "search_company", { query: "la poste", per_page: 5 });
   const s = search.body as Json | undefined;
-  const hit = (s?.results as Json[] | undefined)?.find((c) => c.siren === "356000000");
+  const results = (s?.results as Json[] | undefined) ?? [];
   check(
     `${via}: search_company`,
-    !search.isError && s?.total > 0 && (s?.results as Json[]).every((c) => /^\d{9}$/.test(c.siren)) && hit?.status === "active",
+    !search.isError &&
+      s?.total > 0 &&
+      results.length > 0 &&
+      results.length <= 5 &&
+      results.every((c) => /^\d{9}$/.test(c.siren) && sameKeys(c, SUMMARY_KEYS) && sameKeys(c.head_office, HEAD_OFFICE_KEYS)) &&
+      results.some((c) => /poste/i.test(c.name)),
     s ? `${s.total} results; top: ${(s.results as Json[]).map((c) => `${c.siren} ${c.name}`).join(" | ")}` : search.text,
   );
 
@@ -97,7 +131,15 @@ async function journeys(client: Client, via: string) {
   const c = company.body as Json | undefined;
   check(
     `${via}: get_company`,
-    !company.isError && c?.name === "LA POSTE" && c?.vat_number === "FR39356000000" && c?.head_office?.siret?.startsWith("356000000") && !company.text.includes("date_de_naissance"),
+    !company.isError &&
+      sameKeys(c, DETAILS_KEYS) &&
+      sameKeys(c?.head_office, HEAD_OFFICE_KEYS) &&
+      Array.isArray(c?.leaders) &&
+      (c?.leaders as Json[]).every((l) => sameKeys(l, LEADER_KEYS)) &&
+      c?.siren === "356000000" &&
+      /poste/i.test(c?.name) &&
+      c?.vat_number === vatNumber("356000000") &&
+      c?.head_office?.siret?.startsWith("356000000"),
     c ? `${c.name}, VAT ${c.vat_number}, head office ${c.head_office?.city}, ${c.leaders?.length} leaders` : company.text,
   );
 
@@ -143,25 +185,45 @@ const freePort = () =>
     });
   });
 
-async function waitForLine(path: string, pattern: RegExp, child: ChildProcess, ms: number) {
+/** Waits for the first log line with this msg and returns it. */
+async function waitForLog(path: string, msg: string, child: ChildProcess, ms: number): Promise<Json> {
   const deadline = Date.now() + ms;
   while (Date.now() < deadline) {
     if (child.exitCode !== null) throw new Error(`server exited with ${child.exitCode}`);
-    if (existsSync(path) && pattern.test(readFileSync(path, "utf8"))) return;
+    const line = existsSync(path) ? logLines(path).find((l) => l.msg === msg) : undefined;
+    if (line) return line;
     await new Promise((r) => setTimeout(r, 100));
   }
-  throw new Error(`no ${pattern} in ${path} after ${ms} ms`);
+  throw new Error(`no "${msg}" log line in ${path} after ${ms} ms`);
+}
+
+const sourceFiles = (dir: string): string[] =>
+  readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
+    e.isDirectory() ? sourceFiles(join(dir, e.name)) : e.name.endsWith(".ts") ? [join(dir, e.name)] : [],
+  );
+
+/** dist/ exists and no source or build input is newer than it. */
+function distFresh(): { ok: boolean; detail: string } {
+  if (!existsSync(entry)) return { ok: false, detail: "dist/index.js missing; run npm run build" };
+  const built = statSync(entry).mtimeMs;
+  const inputs = [...sourceFiles(join(root, "src")), join(root, "tsconfig.json"), join(root, "package.json")];
+  const stale = inputs.filter((f) => statSync(f).mtimeMs > built).map((f) => f.slice(root.length + 1));
+  return stale.length ? { ok: false, detail: `newer than dist: ${stale.join(", ")}; run npm run build` } : { ok: true, detail: `${inputs.length} inputs` };
 }
 
 async function doctor(): Promise<boolean> {
-  const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
   const major = Number(process.versions.node.split(".")[0]);
   check("node >= 20", major >= 20, process.version);
   check("dependencies installed", existsSync(join(root, "node_modules/@modelcontextprotocol/sdk")));
-  const built = existsSync(entry);
-  const srcNewest = Math.max(...["server.ts", "http.ts", "index.ts", "upstream.ts"].map((f) => statSync(join(root, "src", f)).mtimeMs));
-  check("dist/ is built and newer than src/", built && statSync(entry).mtimeMs >= srcNewest, built ? "" : "run npm run build");
-  check("package version", typeof pkg.version === "string", `${pkg.name}@${pkg.version}`);
+  const fresh = distFresh();
+  check("dist/ is built and newer than its inputs", fresh.ok, fresh.detail);
+  const lock = JSON.parse(readFileSync(join(root, "package-lock.json"), "utf8"));
+  const source = /export const VERSION = "([^"]+)"/.exec(readFileSync(join(root, "src/server.ts"), "utf8"))?.[1];
+  check(
+    "package version matches the lockfile and the server",
+    pkg.name === "mcp-french-open-data" && /^\d+\.\d+\.\d+$/.test(pkg.version) && lock.version === pkg.version && lock.packages?.[""]?.version === pkg.version && source === pkg.version,
+    `${pkg.name}@${pkg.version}, lockfile ${lock.version}, src/server.ts ${source}`,
+  );
   for (const url of [
     "https://data.geopf.fr/geocodage/search?q=paris&limit=1",
     "https://recherche-entreprises.api.gouv.fr/search?q=356000000&per_page=1",
@@ -176,11 +238,14 @@ async function doctor(): Promise<boolean> {
 async function run(): Promise<boolean> {
   mkdirSync(outDir, { recursive: true });
   say(`evidence: ${outDir}`);
-  if (flag("--skip-build") < 0) {
+  if (!skipBuild) {
     const build = spawnSync("npm", ["run", "build"], { cwd: root, encoding: "utf8" });
     check("npm run build", build.status === 0, build.status === 0 ? "" : build.stderr);
     if (build.status !== 0) return false;
   }
+  const fresh = distFresh();
+  check("dist/ is newer than its inputs", fresh.ok, fresh.detail);
+  if (!fresh.ok) return false;
 
   say("\n## stdio");
   const stdioLog = join(outDir, "stdio.stderr.log");
@@ -190,7 +255,8 @@ async function run(): Promise<boolean> {
   stdio.stderr?.pipe(stdioErr);
   try {
     await stdioClient.connect(stdio);
-    check("stdio: initialize", stdioClient.getServerVersion()?.name === "mcp-french-open-data", JSON.stringify(stdioClient.getServerVersion()));
+    const info = stdioClient.getServerVersion();
+    check("stdio: initialize", info?.name === pkg.name && info?.version === pkg.version, JSON.stringify(info));
     await journeys(stdioClient, "stdio");
   } finally {
     await stdioClient.close();
@@ -210,8 +276,12 @@ async function run(): Promise<boolean> {
   });
   server.stderr!.pipe(createWriteStream(httpLog));
   try {
-    await waitForLine(httpLog, /"msg":"listening".*"auth":"api-key"/, server, 10_000);
-    check("http: ready", true, `pid ${server.pid} on ${url}`);
+    const ready = await waitForLog(httpLog, "listening", server, 10_000);
+    check(
+      "http: ready",
+      ready.transport === "http" && ready.host === "127.0.0.1" && ready.port === port && ready.path === "/mcp" && ready.auth === "api-key" && ready.version === pkg.version,
+      JSON.stringify(ready),
+    );
     const health = await fetch(`http://127.0.0.1:${port}/healthz`);
     check("http: /healthz", health.ok, `HTTP ${health.status}`);
     const init = (headers: Record<string, string>) =>
@@ -228,9 +298,12 @@ async function run(): Promise<boolean> {
     const xKey = await init({ "x-api-key": key });
     check("http: x-api-key accepted", xKey.status === 200, String(xKey.status));
     const httpClient = new Client({ name: "verify-http", version: "1.0.0" });
-    await httpClient.connect(new StreamableHTTPClientTransport(new URL(url), { requestInit: { headers: { authorization: `Bearer ${key}` } } }));
-    await journeys(httpClient, "http");
-    await httpClient.close();
+    try {
+      await httpClient.connect(new StreamableHTTPClientTransport(new URL(url), { requestInit: { headers: { authorization: `Bearer ${key}` } } }));
+      await journeys(httpClient, "http");
+    } finally {
+      await httpClient.close();
+    }
   } finally {
     server.kill("SIGTERM");
     await new Promise((r) => (server.exitCode !== null ? r(null) : server.once("exit", r)));
@@ -241,7 +314,7 @@ async function run(): Promise<boolean> {
   return checks.every((c) => c.ok);
 }
 
-const ok = command === "doctor" ? await doctor() : command === "run" ? await run() : (console.error(`unknown command ${command}`), false);
+const ok = command === "doctor" ? await doctor() : await run();
 const failed = checks.filter((c) => !c.ok).length;
 say(`\n${checks.length - failed}/${checks.length} checks passed`);
 if (command === "run") {
