@@ -135,7 +135,8 @@ async function journeys(client: Client, via: string) {
       sameKeys(c, DETAILS_KEYS) &&
       sameKeys(c?.head_office, HEAD_OFFICE_KEYS) &&
       Array.isArray(c?.leaders) &&
-      (c?.leaders as Json[]).every((l) => sameKeys(l, LEADER_KEYS)) &&
+      (c?.leaders as Json[]).length > 0 &&
+      (c?.leaders as Json[]).every((l) => sameKeys(l, LEADER_KEYS) && typeof l.name === "string" && l.name.length > 0) &&
       c?.siren === "356000000" &&
       /poste/i.test(c?.name) &&
       c?.vat_number === vatNumber("356000000") &&

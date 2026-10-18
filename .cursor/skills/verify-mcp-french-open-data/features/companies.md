@@ -22,7 +22,7 @@ Preconditions:
 Steps:
 
 - **Search.** The step `search_company {"query":"la poste","per_page":5}` passes when the total is above 0, it returns 1 to 5 results, every SIREN has 9 digits, every result has exactly the summary fields, and at least one name contains "poste".
-- **Lookup.** The step `get_company {"siren":"356000000"}` passes when the result has exactly the documented fields (each leader only `name`, `role` and `kind`, so no birth dates leak), the name contains "poste", the VAT number is `FR39356000000` (computed from the SIREN), and the head-office SIRET starts with the SIREN.
+- **Lookup.** The step `get_company {"siren":"356000000"}` passes when the result has exactly the documented fields, with at least one leader, each with a non-empty `name` and only `name`, `role` and `kind`, so no birth dates leak, the name contains "poste", the VAT number is `FR39356000000` (computed from the SIREN), and the head-office SIRET starts with the SIREN.
 - **Invalid.** The step `get_company {"siren":"12"}` passes when `isError` is set and the message says "9-digit SIREN".
 - **Proof.** The PASS lines for `search_company`, `get_company` and `invalid SIREN is refused`, over both transports.
 

@@ -40,7 +40,7 @@ Run it first whenever a `run` fails. If an upstream check fails, the problem is 
 | Address search | `search_address {"query":"20 avenue de Ségur Paris","limit":1}` | postcode `75007`, label contains `Ségur`, lat 48.8–48.9, lon 2.25–2.4 |
 | Reverse geocode | `reverse_geocode {"lat":45.7578,"lon":4.832}` | city `Lyon`, `distance_m` < 1000 |
 | Company search | `search_company {"query":"la poste","per_page":5}` | total > 0, 1 to 5 results, every SIREN has 9 digits, every result has exactly the summary fields, at least one name contains "poste" |
-| Company lookup | `get_company {"siren":"356000000"}` | exactly the documented fields (leaders only `name`, `role`, `kind`, so no birth dates), name contains "poste", VAT `FR39356000000` computed from the SIREN, head-office SIRET starts with the SIREN |
+| Company lookup | `get_company {"siren":"356000000"}` | exactly the documented fields, at least one leader, each with a non-empty `name` and only `name`, `role`, `kind` (so no birth dates), name contains "poste", VAT `FR39356000000` computed from the SIREN, head-office SIRET starts with the SIREN |
 | Communes | `list_communes {"postcode":"69001"}` | Lyon `69123`, population > 400,000 |
 | Invalid input | `get_company {"siren":"12"}` | `isError` with "9-digit SIREN" |
 
