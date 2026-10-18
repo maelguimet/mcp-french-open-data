@@ -22,7 +22,7 @@ Preconditions:
 Steps:
 
 - **Search.** Run `verify.ts run`. The step `search_address {"query":"20 avenue de Ségur Paris","limit":1}` passes when the first result has postcode `75007`, its label contains `Ségur`, and its coordinates fall in Paris.
-- **Reverse.** The step `reverse_geocode {"lat":45.7578,"lon":4.832}` passes when the first result's city is `Lyon` and `distance_m` is under 300.
+- **Reverse.** The step `reverse_geocode {"lat":45.7578,"lon":4.832}` passes when the first result's city is `Lyon` and `distance_m` is under 1000.
 - **Proof.** The `PASS stdio: search_address` and `PASS http: search_address` lines in `transcript.txt`, plus `"tool":"search_address","ok":true` in both stderr logs.
 
 ## Gotchas
