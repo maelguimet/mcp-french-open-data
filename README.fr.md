@@ -136,13 +136,9 @@ npm run build       # compilation vers dist/
 
 ### Taille maximale des fichiers
 
-Chaque fichier reste sous environ 5 000 tokens, soit 20 000 octets. Un hook pre-commit bloque les fichiers indexés plus gros, et la CI refait la même vérification à chaque push et pull request. Pour activer le hook, une fois par clone :
+Chaque fichier reste sous environ 5 000 tokens, soit 20 000 octets. C'est la CI qui fait foi : le workflow File size lance `scripts/check-file-size --all` à chaque push et pull request et, sur les pull requests, refuse aussi toute nouvelle exemption de taille dans `.gitattributes` et toute entrée de `.file-size-baseline` ajoutée ou augmentée. Le hook pre-commit fait la même vérification sur les fichiers indexés avant la CI ; `npm install` l'active en réglant `core.hooksPath` sur `.githooks`.
 
-```sh
-git config core.hooksPath .githooks
-```
-
-`scripts/check-file-size --all` vérifie tout l'arbre. En cas d'échec, découpez le fichier par responsabilité, déplacez les tests dans leur propre fichier, ou extrayez les données et fixtures. Les lockfiles, les fichiers binaires et les chemins marqués `linguist-generated` ou `linguist-vendored` dans `.gitattributes` sont exemptés.
+`scripts/check-file-size --all` vérifie tout l'arbre. En cas d'échec, découpez le fichier par responsabilité, déplacez les tests dans leur propre fichier, ou extrayez les données et fixtures. Les lockfiles (par nom exact), les fichiers au contenu binaire et les chemins marqués `linguist-generated`, `linguist-vendored`, `binary` ou `-diff` dans le `.gitattributes` commité sont exemptés.
 
 ## Licence
 

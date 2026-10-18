@@ -11,7 +11,8 @@
     "typecheck": "tsc -p tsconfig.test.json",
     "test": "vitest run",
     "test:live": "LIVE=1 vitest run test/live.test.ts",
-    "demo": "node --import tsx scripts/demo.ts"
+    "demo": "node --import tsx scripts/demo.ts",
+    "prepare": "if git rev-parse --git-dir >/dev/null 2>&1; then git config core.hooksPath .githooks; fi"
   },
   "keywords": [
     "mcp",
