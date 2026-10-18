@@ -134,6 +134,16 @@ npm run test:live   # test de fumée contre les vraies API (LIVE=1)
 npm run build       # compilation vers dist/
 ```
 
+### Taille maximale des fichiers
+
+Chaque fichier reste sous environ 5 000 tokens, soit 20 000 octets. Un hook pre-commit bloque les fichiers indexés plus gros, et la CI refait la même vérification à chaque push et pull request. Pour activer le hook, une fois par clone :
+
+```sh
+git config core.hooksPath .githooks
+```
+
+`scripts/check-file-size --all` vérifie tout l'arbre. En cas d'échec, découpez le fichier par responsabilité, déplacez les tests dans leur propre fichier, ou extrayez les données et fixtures. Les lockfiles, les fichiers binaires et les chemins marqués `linguist-generated` ou `linguist-vendored` dans `.gitattributes` sont exemptés.
+
 ## Licence
 
 [MIT](LICENSE) © 2026 Maël Guimet. Données des services publics français sous Licence Ouverte / Etalab 2.0.
